@@ -1,6 +1,7 @@
-# File Sharing System
+## Project Description
 
-This project is a simple peer-to-peer file sharing system implemented in Java. It allows users to share and download files over a network using IP addresses and ports.
+The **File Sharing System** is a sophisticated peer-to-peer application crafted in Java, designed to facilitate seamless file exchange over a network. This system allows users to effortlessly share and download files using IP addresses and ports. Its intuitive command-line interface ensures that users can manage file sharing tasks with ease. Ideal for collaborative environments and distributed networks, this project demonstrates efficient networking and file management capabilities, providing a robust solution for decentralized file sharing needs.
+
 
 ## Features
 
