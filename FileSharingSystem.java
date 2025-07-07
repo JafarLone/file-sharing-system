@@ -1,5 +1,7 @@
+import javax.net.ssl.*;
 import java.io.*;
 import java.net.*;
+import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,35 +23,44 @@ class Peer {
     }
 }
 
-class FileSharingSystem {
+public class SecureFileSharingSystem {
     private static final int PORT = 9000;
     private static List<Peer> knownPeers = new ArrayList<>();
     private static List<String> sharedFiles = new ArrayList<>();
 
     public static void main(String[] args) {
-        
         try {
-            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-                
-                // Start peer discovery thread
-                new Thread(() -> discoverPeers()).start();
+            // Load keystore for SSL
+            KeyStore keyStore = KeyStore.getInstance("JKS");
+            keyStore.load(new FileInputStream("mykeystore.jks"), "your-keystore-password".toCharArray());
 
-                // Start user interface thread
-                new Thread(() -> startUserInterface()).start();
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+            kmf.init(keyStore, "your-key-password".toCharArray());
 
-                while (true) {
-                    Socket clientSocket = serverSocket.accept();
-                    new Thread(() -> handleClient(clientSocket)).start();
-                }
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(kmf.getKeyManagers(), null, null);
+
+            SSLServerSocketFactory ssf = sslContext.getServerSocketFactory();
+            SSLServerSocket sslServerSocket = (SSLServerSocket) ssf.createServerSocket(PORT);
+
+            // Start peer discovery
+            new Thread(() -> discoverPeers()).start();
+
+            // Start user interface
+            new Thread(() -> startUserInterface()).start();
+
+            System.out.println("Secure File Sharing Server started on port " + PORT);
+
+            while (true) {
+                SSLSocket clientSocket = (SSLSocket) sslServerSocket.accept();
+                new Thread(() -> handleClient(clientSocket)).start();
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     private static void discoverPeers() {
-        // In a real-world scenario, you would implement a more sophisticated peer discovery mechanism.
-        // For simplicity, we'll just list some peers initially.
         knownPeers.add(new Peer("172.20.10.11", PORT));
         knownPeers.add(new Peer("172.20.10.9", PORT));
     }
@@ -115,32 +126,35 @@ class FileSharingSystem {
         int peerPort = Integer.parseInt(userInput.readLine());
 
         try {
-            Socket socket = new Socket(peerIP, peerPort);
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            SSLContext sslContext = SSLContext.getDefault();
+            SSLSocketFactory ssf = sslContext.getSocketFactory();
+            SSLSocket sslSocket = (SSLSocket) ssf.createSocket(peerIP, peerPort);
 
-            // Request the file
+            sslSocket.startHandshake();
+
+            PrintWriter out = new PrintWriter(sslSocket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(sslSocket.getInputStream()));
+
             out.println("DOWNLOAD");
             out.println(fileName);
 
-            // Receive the file
             String response = in.readLine();
             if (response.equals("ACK")) {
-                receiveFile(socket, fileName);
+                receiveFile(sslSocket, fileName);
                 System.out.println("File downloaded successfully: " + fileName);
             } else {
                 System.out.println("File not found on the peer.");
             }
 
-            socket.close();
+            sslSocket.close();
         } catch (IOException e) {
             System.out.println("Error connecting to the peer. Make sure the information is correct.");
         }
     }
 
-    private static void receiveFile(Socket socket, String fileName) {
+    private static void receiveFile(SSLSocket sslSocket, String fileName) {
         try {
-            InputStream inputStream = socket.getInputStream();
+            InputStream inputStream = sslSocket.getInputStream();
             FileOutputStream fileOutputStream = new FileOutputStream(fileName);
 
             byte[] buffer = new byte[1024];
@@ -156,7 +170,7 @@ class FileSharingSystem {
         }
     }
 
-    private static void handleClient(Socket clientSocket) {
+    private static void handleClient(SSLSocket clientSocket) {
         try {
             BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
@@ -164,18 +178,14 @@ class FileSharingSystem {
             String message = in.readLine();
 
             if (message.equals("HELLO")) {
-                // Peer is saying hello, exchange information
                 out.println("HELLO");
             } else if (message.equals("SHARE")) {
-                // Peer wants to share files, exchange file information
                 out.println("ACK");
                 String fileName = in.readLine();
                 sharedFiles.add(fileName);
             } else if (message.equals("LIST")) {
-                // Peer wants to list available files
                 out.println(String.join(",", sharedFiles));
             } else if (message.equals("DOWNLOAD")) {
-                // Peer wants to download a file
                 out.println("ACK");
                 String fileName = in.readLine();
                 sendFile(clientSocket, fileName);
@@ -187,7 +197,7 @@ class FileSharingSystem {
         }
     }
 
-    private static void sendFile(Socket clientSocket, String fileName) {
+    private static void sendFile(SSLSocket clientSocket, String fileName) {
         try {
             File file = new File(fileName);
             byte[] fileBytes = new byte[(int) file.length()];
